@@ -1,0 +1,114 @@
+version: '3.5'
+services:
+  app:
+    image:swarmpit/swarmpit:latest
+    environment:
+      - SWARMPIT_DB=http://db:5984
+      - SWARMPIT_INFLUXDB=http://influxdb:8086
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - 888:8080
+    networks:
+      - swarmpit
+      - traefik-net
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
+        reservations:
+          cpus: '0.2'
+          memory: 512M
+      placement:
+        constraints:
+          - node.role == manager
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=traefik-net
+        - traefik.constraint-label=traefik-net
+        - traefik.http.routers.swarmpit-http.rule=Host(`{{ swp_hname }}`)
+        - traefik.http.routers.swarmpit-http.entrypoints=http
+        - traefik.http.routers.swarmpit-http.middlewares=https-redirect
+        - traefik.http.routers.swarmpit-https.rule=Host(`{{ swp_hname }}`)
+        - traefik.http.routers.swarmpit-https.entrypoints=https
+        - traefik.http.routers.swarmpit-https.tls=true
+        - traefik.http.routers.swarmpit-https.tls.certresolver=le
+        - traefik.http.services.swarmpit.loadbalancer.server.port=8080
+
+  db:
+    image: couchdb:2.3.0
+    volumes:
+      - db-data:/opt/couchdb/data
+    networks:
+      -swarmpit
+    deploy:
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
+        reservations:
+          cpus: '0.15'
+          memory: 256M
+      placement:
+        constraints:
+          - node.role == worker
+
+  influxdb:
+    image: influxdb:1.7
+    volumes:
+      - influx-data:/var/lib/influxdb
+    networks:
+      - swarmpit
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 128M
+        reservations:
+          cpus: '0.3'
+          memory: 128M
+      placement:
+        constraints:
+          - node.role == worker
+
+  agent:
+    image: swarmpit/agent:latest
+    environment:
+      - DOCKER_API_VERSION=1.35
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - swarmpit
+    deploy:
+      mode: global
+      resources:
+        limits:
+          cpus: '0.10'
+          memory: 128M
+        reservations:
+          cpus: '0.05'
+          memory: 32M
+
+networks:
+  swarmpit:
+    driver: overlay
+    attachable: true
+  traefik-net:
+    external: true
+
+volumes:
+  db-data:
+    name: db-data
+    driver_opts:
+      type: nfs
+      o: nfsvers=4,addr={{ nfs_host }},rw
+      device: ':/srv/swp/couch'
+
+  influx-data:
+    name: influx-data
+    driver_opts:
+      type: nfs
+      o: nfsvers=4,addr={{ nfs_host }},rw
+      device: ':/srv/swp/influx'
+

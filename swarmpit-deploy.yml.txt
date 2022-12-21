@@ -1,0 +1,48 @@
+---
+- hosts: storage
+  become: yes
+  tasks:
+    - name: Create Directories for Swarmpit Databases
+      file:
+        path: "{{ item }}"
+        state: directory
+        mode: '0755'
+      loop:
+        - /srv/swp/couch
+        - /srv/swp/influx
+
+    - name: Add NFS exports for Swarmpit
+      lineinfile:
+        dest: /etc/exports
+        line: "{{ item }}"
+      with_items:
+        - '/srv/swp/couch 10.6.0.0/24(rw,sync,no_subtree_check, no_root_squash,no_all_squash)'
+        - '/srv/swp/influx 10.6.0.0/24(rw,sync,no_subtree_check,no_root_squash,no_all_squash)'
+
+    - name: Reload NFS Shares
+      command: exportfs -rv
+
+- hosts: master
+  become: yes
+  vars_files:
+    - ../../vars/host_vars.yml
+  tasks: 
+    - name: Create deploy directory
+      file:
+        path: ~/docker
+        state: directory
+        mode: '0755'
+
+    - name: Copy Swarmpit Deployment File
+      template:
+        src: deploys/swarmpit.yml.j2
+        dest: ~/docker/swarmpit.yml
+
+    - name: Deploy traefik service
+      shell: docker stack deploy -c ~/docker/swarmpit.yml swarmpit
+
+    - name: Remove swarmpit deploy file
+      file:
+        state: absent
+        path: "~/docker/swarmpit.yml"
+
